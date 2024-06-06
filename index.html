@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Education Application</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        h1 {
+            color: #333;
+        }
+        form {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="date"], input[type="file"], input[type="checkbox"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        input[type="checkbox"] {
+            width: auto;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .signature-pad {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="application-form">
+        <h1>Education Application Form</h1>
+        <form id="educationApplicationForm" enctype="multipart/form-data">
+            <label for="full_name">Full Name:</label>
+            <input type="text" id="full_name" name="full_name" required><br>
+            <label for="gender">Gender:</label>
+            <input type="text" id="gender" name="gender" required><br>
+            <label for="age">Age:</label>
+            <input type="text" id="age" name="age" required><br>
+            <label for="year">Year:</label>
+            <input type="text" id="year" name="year" required><br>
+            <label for="course">Course:</label>
+            <input type="text" id="course" name="course" required><br>
+            <label for="id_number">ID Number:</label>
+            <input type="text" id="id_number" name="id_number" required><br>
+            <label for="id_picture">ID Picture:</label>
+            <input type="file" id="id_picture" name="id_picture" required><br>
+            <label for="record card">Record Card:</label>
+            <input type="file" id="record card" name="record card" required><br>
+            <label for="signature">Signature:</label>
+            <canvas id="signature-pad" class="signature-pad" width=400 height=200></canvas><br>
+            <label>
+                <input type="checkbox" id="agreement" name="agreement" required>
+                I agree to the collection and processing of my data.
+            </label><br>
+            <button type="button" id="clear">Clear</button>
+            <button type="submit">register</button>
+        </form>
+    </div>
+    <div id="confirmation" class="hidden">
+        <h1>Application Confirmation</h1>
+        <p>Thank you for applying!</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+    <script>
+        // Signature pad setup
+        var canvas = document.getElementById('signature-pad');
+        var signaturePad = new SignaturePad(canvas);
+
+        document.getElementById('clear').addEventListener('click', function() {
+            signaturePad.clear();
+        });
+
+        // Generate RSA keys
+        async function generateKeys() {
+            const keyPair = await window.crypto.subtle.generateKey(
+                {
+                    name: "RSA-PSS",
+                    modulusLength: 2048,
+                    publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                    hash: "SHA-256"
+                },
+                true,
+                ["sign", "verify"]
+            );
+
+            const privateKey = await window.crypto.subtle.exportKey(
+                "pkcs8",
+                keyPair.privateKey
+            );
+            const publicKey = await window.crypto.subtle.exportKey(
+                "spki",
+                keyPair.publicKey
+            );
+
+            return { privateKey, publicKey, keyPair };
+        }
+
+        // Sign data
+        async function signData(privateKey, data) {
+            const signature = await window.crypto.subtle.sign(
+                {
+                    name: "RSA-PSS",
+                    saltLength: 32
+                },
+                privateKey,
+                data
+            );
+
+            return signature;
+        }
+
+        document.getElementById('educationApplicationForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            if (signaturePad.isEmpty()) {
+                alert("Please provide a signature.");
+                return;
+            }
+
+            if (!document.getElementById('agreement').checked) {
+                alert("You must agree to the collection and processing of your data.");
+                return;
+            }
+
+            const formData = new FormData(this);
+            const signatureData = signaturePad.toDataURL();
+
+            formData.append('signature', signatureData);
+
+            // Generate keys
+            const { privateKey, publicKey, keyPair } = await generateKeys();
+
+            // Sign form data
+            const encoder = new TextEncoder();
+            const dataToSign = encoder.encode([...formData.entries()].map(e => e.join('=')).join('&'));
+            const signature = await signData(keyPair.privateKey, dataToSign);
+
+            formData.append('public_key', JSON.stringify(new Uint8Array(publicKey)));
+            formData.append('private_key', JSON.stringify(new Uint8Array(privateKey)));
+            formData.append('rsa_signature', JSON.stringify(new Uint8Array(signature)));
+
+            // Post form data to server
+            fetch('/api/register', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.text())
+            .then(data => {
+                alert(data);
+                document.getElementById('application-form').classList.add('hidden');
+                document.getElementById('confirmation').classList.remove('hidden');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        });
+    </script>
+</body>
+</html>
